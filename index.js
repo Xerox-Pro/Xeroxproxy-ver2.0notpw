@@ -29,7 +29,7 @@ const ALLOWED_HOST = "xeroxapp024.vercel.app";
 app.use((req, res, next) => {
   // 静的ファイルや bare-server API は除外
   if (
-    req.path.startsWith("/static") ||
+   
     req.path.startsWith("/ca") ||
     req.path.match(/\.(css|js|png|jpg|jpeg|gif|ico|webp|svg|woff|woff2|ttf|otf|mp4|mp3|json)$/)
   ) {
