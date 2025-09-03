@@ -23,10 +23,11 @@ const cache = new Map();
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // Cache for 30 Days
 
 // ======== Referer チェックミドルウェア ========
-const ALLOWED_HOST = "xeroxapp024.vercel.app"; // 埋め込み元のホスト名
+// xeroxapp024.vercel.app からの iframe 埋め込み時のみ全ページ許可
+const ALLOWED_HOST = "xeroxapp024.vercel.app";
 
 app.use((req, res, next) => {
-  // 静的ファイルやAPIなどは除外
+  // 静的ファイルや bare-server API は除外
   if (
     req.path.startsWith("/static") ||
     req.path.startsWith("/ca") ||
@@ -37,43 +38,42 @@ app.use((req, res, next) => {
 
   const referer = req.get("referer");
   if (!referer) {
-    // 直アクセスは拒否（許可したい場合は next() に変更）
+    // 直アクセスは拒否
     return res.status(403).send("Forbidden");
   }
 
   try {
     const refererHost = new URL(referer).host;
     if (refererHost === ALLOWED_HOST) {
-      return next();
+      return next(); // 全ページ許可
     }
   } catch (e) {
-    // Refererが不正なURLなら拒否
+    // Referer が不正な場合は拒否
   }
 
   return res.status(403).send("Forbidden");
 });
 // ======== ここまで ========
 
+// Basic認証
 if (config.challenge !== false) {
-  console.log(
-    chalk.green("🔒 Password protection is enabled! Listing logins below"),
-  );
+  console.log(chalk.green("🔒 Password protection is enabled! Listing logins below"));
   Object.entries(config.users).forEach(([username, password]) => {
     console.log(chalk.blue(`Username: ${username}, Password: ${password}`));
   });
   app.use(basicAuth({ users: config.users, challenge: true }));
 }
 
+// アセット配信（キャッシュ付き）
 app.get("/e/*", async (req, res, next) => {
   try {
     if (cache.has(req.path)) {
       const { data, contentType, timestamp } = cache.get(req.path);
-      if (Date.now() - timestamp > CACHE_TTL) {
-        cache.delete(req.path);
-      } else {
+      if (Date.now() - timestamp <= CACHE_TTL) {
         res.writeHead(200, { "Content-Type": contentType });
         return res.end(data);
       }
+      cache.delete(req.path);
     }
 
     const baseUrls = {
@@ -90,14 +90,10 @@ app.get("/e/*", async (req, res, next) => {
       }
     }
 
-    if (!reqTarget) {
-      return next();
-    }
+    if (!reqTarget) return next();
 
     const asset = await fetch(reqTarget);
-    if (!asset.ok) {
-      return next();
-    }
+    if (!asset.ok) return next();
 
     const data = Buffer.from(await asset.arrayBuffer());
     const ext = path.extname(reqTarget);
@@ -128,6 +124,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "static")));
 app.use("/ca", cors({ origin: true }));
 
+// ページルーティング
 const routes = [
   { path: "/b", file: "apps.html" },
   { path: "/a", file: "games.html" },
@@ -143,15 +140,18 @@ routes.forEach(route => {
   });
 });
 
-app.use((req, res, next) => {
+// 404
+app.use((req, res) => {
   res.status(404).sendFile(path.join(__dirname, "static", "404.html"));
 });
 
+// 500
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).sendFile(path.join(__dirname, "static", "404.html"));
 });
 
+// bare-server 統合
 server.on("request", (req, res) => {
   if (bareServer.shouldRoute(req)) {
     bareServer.routeRequest(req, res);
