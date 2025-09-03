@@ -23,32 +23,54 @@ const cache = new Map();
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // Cache for 30 Days
 
 // ======== Referer チェックミドルウェア ========
-// xeroxapp024.vercel.app からの iframe 埋め込み時のみ全ページ許可
-const ALLOWED_HOST = "xeroxapp024.vercel.app";
+// 親からの iframe 埋め込み、かつ iframe 内でのページ遷移（同一オリジン）を許可。
+// 親は環境変数 ALLOWED_PARENTS でカンマ区切り指定可（未指定時は既定の 1 ドメイン）。
+const DEFAULT_PARENT = "xeroxapp024.vercel.app";
+const PARENT_ALLOWED_HOSTS = (process.env.ALLOWED_PARENTS || DEFAULT_PARENT)
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
 
 app.use((req, res, next) => {
-  // 静的ファイルや bare-server API は除外
+  // bare-server API は除外（プロキシ機能を壊さないため）
+  if (req.path.startsWith("/ca")) {
+    return next();
+  }
+
+  // 静的ファイル（CSS/JS/画像/フォント/動画/音声/JSON 等）は除外
+  // これらは iframe 内ページから「同一オリジン参照」で読み込まれるため、
+  // 親ホストではなく子ホストが Referer になるのが通常。除外しないと崩れます。
   if (
-   
-    req.path.startsWith("/ca") ||
-    req.path.match(/\.(css|js|png|jpg|jpeg|gif|ico|webp|svg|woff|woff2|ttf|otf|mp4|mp3|json)$/)
+    req.path.match(
+      /\.(css|js|mjs|png|jpg|jpeg|gif|ico|webp|svg|avif|apng|bmp|woff|woff2|ttf|otf|eot|mp4|webm|mp3|wav|json|map)$/
+    )
   ) {
     return next();
   }
 
+  // ここから HTML や API など「ページ遷移系」に Referer チェックをかける
   const referer = req.get("referer");
+
   if (!referer) {
-    // 直アクセスは拒否
+    // 直アクセスは拒否（iframe 経由なら Referer が入る想定）
     return res.status(403).send("Forbidden");
   }
 
   try {
     const refererHost = new URL(referer).host;
-    if (refererHost === ALLOWED_HOST) {
-      return next(); // 全ページ許可
+    const selfHost = req.headers.host; // デプロイ先の実ホスト（例: xeroxapp025.vercel.app）
+
+    // 許可条件:
+    // - 親ホスト（埋め込み元）からのリクエスト
+    // - 同一ホスト（iframe 内でのページ遷移時の Referer）からのリクエスト
+    const isFromParent = PARENT_ALLOWED_HOSTS.includes(refererHost);
+    const isFromSelf = refererHost === selfHost;
+
+    if (isFromParent || isFromSelf) {
+      return next();
     }
   } catch (e) {
-    // Referer が不正な場合は拒否
+    // 不正な Referer 形式は拒否
   }
 
   return res.status(403).send("Forbidden");
@@ -100,7 +122,7 @@ app.get("/e/*", async (req, res, next) => {
     const no = [".unityweb"];
     const contentType = no.includes(ext)
       ? "application/octet-stream"
-      : mime.getType(ext);
+      : mime.getType(ext) || "application/octet-stream";
 
     cache.set(req.path, { data, contentType, timestamp: Date.now() });
     res.writeHead(200, { "Content-Type": contentType });
@@ -121,10 +143,13 @@ app.use(express.urlencoded({ extended: true }));
   setupMasqr(app);
 } */
 
+// 静的アセット
 app.use(express.static(path.join(__dirname, "static")));
+
+// bare-server 用 CORS
 app.use("/ca", cors({ origin: true }));
 
-// ページルーティング
+// ページルーティング（既存のマッピングは維持）
 const routes = [
   { path: "/b", file: "apps.html" },
   { path: "/a", file: "games.html" },
@@ -138,6 +163,40 @@ routes.forEach(route => {
   app.get(route.path, (_req, res) => {
     res.sendFile(path.join(__dirname, "static", route.file));
   });
+});
+
+// ワイルドカード: /static 内にある HTML を自動で解決して返す
+// 例: /game -> static/game.html, /foo/bar -> static/foo/bar.html
+app.get("*", (req, res, next) => {
+  // 既に静的アセットで返せるパスや /ca はここに来ない想定
+  const staticRoot = path.join(__dirname, "static");
+
+  // デコード＆正規化
+  const reqPath = decodeURIComponent(req.path);
+  const safeJoin = (p) => {
+    const full = path.join(staticRoot, p);
+    const normalized = path.normalize(full);
+    // ディレクトリトラバーサル防止
+    if (!normalized.startsWith(staticRoot)) {
+      return null;
+    }
+    return normalized;
+  };
+
+  // 1. そのままのパス（/foo -> static/foo）
+  const direct = safeJoin(reqPath);
+  if (direct && fs.existsSync(direct) && fs.statSync(direct).isFile()) {
+    return res.sendFile(direct);
+  }
+
+  // 2. .html を付与（/foo -> static/foo.html）
+  const withHtml = safeJoin(reqPath.replace(/\/$/, "") + ".html");
+  if (withHtml && fs.existsSync(withHtml) && fs.statSync(withHtml).isFile()) {
+    return res.sendFile(withHtml);
+  }
+
+  // 見つからなければ次へ（404 ハンドラへ）
+  return next();
 });
 
 // 404
