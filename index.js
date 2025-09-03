@@ -22,11 +22,22 @@ const PORT = process.env.PORT || 8080;
 const cache = new Map();
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // Cache for 30 Days
 
+// ======== ここから追加: Referer チェック ========
+const ALLOWED_DOMAIN = "https://xeroxapp024.vercel.app"; // 埋め込み元のURLに変更
+
+app.use((req, res, next) => {
+  const referer = req.get("referer") || "";
+  if (!referer.startsWith(ALLOWED_DOMAIN)) {
+    return res.status(403).send("Forbidden");
+  }
+  next();
+});
+// ======== 追加ここまで ========
+
 if (config.challenge !== false) {
   console.log(
     chalk.green("🔒 Password protection is enabled! Listing logins below"),
   );
-  // biome-ignore lint/complexity/noForEach:
   Object.entries(config.users).forEach(([username, password]) => {
     console.log(chalk.blue(`Username: ${username}, Password: ${password}`));
   });
@@ -106,7 +117,6 @@ const routes = [
   { path: "/", file: "index.html" },
 ];
 
-// biome-ignore lint/complexity/noForEach:
 routes.forEach(route => {
   app.get(route.path, (_req, res) => {
     res.sendFile(path.join(__dirname, "static", route.file));
