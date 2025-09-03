@@ -85,6 +85,45 @@ app.get("/e/*", async (req, res, next) => {
   }
 });
 
+// 許可された埋め込み元ドメイン
+const allowedEmbedOrigins = ['https://xeroxapp051.vercel.app'];
+
+app.use((req, res, next) => {
+  const referer = req.get('Referer');
+  const origin = referer ? new URL(referer).origin : '';
+
+  // iframe内からのアクセスかどうかを判定（Refererがある場合）
+  const isEmbedded = !!referer;
+
+  // same-originを許可したい場合は、以下のように currentOrigin を取得して比較できます
+  const currentOrigin = req.protocol + '://' + req.get('host');
+
+  let isAllowed = false;
+
+  if (allowedEmbedOrigins.includes('same-origin') && origin === currentOrigin) {
+    isAllowed = true;
+  } else if (allowedEmbedOrigins.includes(origin)) {
+    isAllowed = true;
+  }
+
+  if (isEmbedded && !isAllowed) {
+    return res.status(403).send(`
+      <html lang="ja">
+        <head><meta charset="UTF-8"><title>埋め込み拒否</title></head>
+        <body style="font-family: sans-serif; background-color: #f8f8f8; display: flex; align-items: center; justify-content: center; height: 100vh;">
+          <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center;">
+            <h1 style="color: #e53e3e; font-size: 1.5rem;">埋め込み元が不正です</h1>
+            <p style="color: #4a5568;">このページは、許可されたドメインからの埋め込みでのみ表示可能です。</p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+
+  next();
+});
+
+
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
