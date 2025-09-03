@@ -22,17 +22,37 @@ const PORT = process.env.PORT || 8080;
 const cache = new Map();
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // Cache for 30 Days
 
-// ======== ここから追加: Referer チェック ========
-const ALLOWED_DOMAIN = "https://xeroxapp024.vercel.app"; // 埋め込み元のURLに変更
+// ======== Referer チェックミドルウェア ========
+const ALLOWED_HOST = "xeroxapp024.vercel.app"; // 埋め込み元のホスト名
 
 app.use((req, res, next) => {
-  const referer = req.get("referer") || "";
-  if (!referer.startsWith(ALLOWED_DOMAIN)) {
+  // 静的ファイルやAPIなどは除外
+  if (
+    req.path.startsWith("/static") ||
+    req.path.startsWith("/ca") ||
+    req.path.match(/\.(css|js|png|jpg|jpeg|gif|ico|webp|svg|woff|woff2|ttf|otf|mp4|mp3|json)$/)
+  ) {
+    return next();
+  }
+
+  const referer = req.get("referer");
+  if (!referer) {
+    // 直アクセスは拒否（許可したい場合は next() に変更）
     return res.status(403).send("Forbidden");
   }
-  next();
+
+  try {
+    const refererHost = new URL(referer).host;
+    if (refererHost === ALLOWED_HOST) {
+      return next();
+    }
+  } catch (e) {
+    // Refererが不正なURLなら拒否
+  }
+
+  return res.status(403).send("Forbidden");
 });
-// ======== 追加ここまで ========
+// ======== ここまで ========
 
 if (config.challenge !== false) {
   console.log(
