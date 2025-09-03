@@ -2,19 +2,19 @@
 import { NextResponse } from 'next/server'
 
 export function middleware(req) {
-  const url = new URL(req.url)
-  const token = url.searchParams.get("token")
+  const referer = req.headers.get('referer') || ''
+  const allowedDomain = 'https://xeroxapp024.vercel.app' // ← 埋め込み元のドメインに変更
 
-  // 埋め込み専用の秘密キー
-  const allowedToken = "abc123"
-
-  if (token !== allowedToken) {
-    return new NextResponse("直接アクセスは使用できません。Xerox YTからのアクセスをお願いします", { status: 403 })
+  // Referer が空、または許可ドメインで始まらない場合は拒否
+  if (!referer.startsWith(allowedDomain)) {
+    return new NextResponse('Forbidden', { status: 403 })
   }
 
+  // 許可された場合はそのまま処理を続行
   return NextResponse.next()
 }
 
+// 適用するパスを指定（全ページに適用する場合）
 export const config = {
-  matcher: '/:path*',
+  matcher: '/:path*'
 }
