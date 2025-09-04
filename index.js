@@ -22,17 +22,18 @@ const PORT = process.env.PORT || 8080;
 const cache = new Map();
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // Cache for 30 Days
 
+// 🔐 Basic認証（必要な場合）
 if (config.challenge !== false) {
   console.log(
     chalk.green("🔒 Password protection is enabled! Listing logins below"),
   );
-  // biome-ignore lint/complexity/noForEach:
   Object.entries(config.users).forEach(([username, password]) => {
     console.log(chalk.blue(`Username: ${username}, Password: ${password}`));
   });
   app.use(basicAuth({ users: config.users, challenge: true }));
 }
 
+// 📦 外部アセットキャッシュ付き取得
 app.get("/e/*", async (req, res, next) => {
   try {
     if (cache.has(req.path)) {
@@ -59,14 +60,10 @@ app.get("/e/*", async (req, res, next) => {
       }
     }
 
-    if (!reqTarget) {
-      return next();
-    }
+    if (!reqTarget) return next();
 
     const asset = await fetch(reqTarget);
-    if (!asset.ok) {
-      return next();
-    }
+    if (!asset.ok) return next();
 
     const data = Buffer.from(await asset.arrayBuffer());
     const ext = path.extname(reqTarget);
@@ -85,27 +82,19 @@ app.get("/e/*", async (req, res, next) => {
   }
 });
 
-
-// 許可された埋め込み元ドメイン
-const allowedEmbedOrigins = ['https://xeroxapp024.vercel.app'];
+// 🛡️ 埋め込み制限ミドルウェア（全体に適用）
+const allowedEmbedOrigins = ['https://xeroxapp024.vercel.app', 'same-origin'];
 
 app.use((req, res, next) => {
   const referer = req.get('Referer');
   const origin = referer ? new URL(referer).origin : '';
-
-  // iframe内からのアクセスかどうかを判定（Refererがある場合）
-  const isEmbedded = !!referer;
-
-  // same-originを許可したい場合は、以下のように currentOrigin を取得して比較できます
   const currentOrigin = req.protocol + '://' + req.get('host');
 
-  let isAllowed = false;
+  const isEmbedded = !!referer;
+  const isSameOriginAllowed = allowedEmbedOrigins.includes('same-origin') && origin === currentOrigin;
+  const isExplicitlyAllowed = allowedEmbedOrigins.includes(origin);
 
-  if (allowedEmbedOrigins.includes('same-origin') && origin === currentOrigin) {
-    isAllowed = true;
-  } else if (allowedEmbedOrigins.includes(origin)) {
-    isAllowed = true;
-  }
+  const isAllowed = isSameOriginAllowed || isExplicitlyAllowed;
 
   if (isEmbedded && !isAllowed) {
     return res.status(403).send(`
@@ -124,8 +113,7 @@ app.use((req, res, next) => {
   next();
 });
 
-
-
+// 🍪 その他ミドルウェア
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -135,9 +123,11 @@ app.use(express.urlencoded({ extended: true }));
   setupMasqr(app);
 } */
 
+// 📁 静的ファイル配信
 app.use(express.static(path.join(__dirname, "static")));
 app.use("/ca", cors({ origin: true }));
 
+// 📄 ルーティング
 const routes = [
   { path: "/b", file: "apps.html" },
   { path: "/a", file: "games.html" },
@@ -147,13 +137,13 @@ const routes = [
   { path: "/", file: "index.html" },
 ];
 
-// biome-ignore lint/complexity/noForEach:
 routes.forEach(route => {
   app.get(route.path, (_req, res) => {
     res.sendFile(path.join(__dirname, "static", route.file));
   });
 });
 
+// ❌ 404 & 500 ハンドラー
 app.use((req, res, next) => {
   res.status(404).sendFile(path.join(__dirname, "static", "404.html"));
 });
@@ -163,6 +153,7 @@ app.use((err, req, res, next) => {
   res.status(500).sendFile(path.join(__dirname, "static", "404.html"));
 });
 
+// 🌐 bare-server 統合
 server.on("request", (req, res) => {
   if (bareServer.shouldRoute(req)) {
     bareServer.routeRequest(req, res);
@@ -184,3 +175,4 @@ server.on("listening", () => {
 });
 
 server.listen({ port: PORT });
+
