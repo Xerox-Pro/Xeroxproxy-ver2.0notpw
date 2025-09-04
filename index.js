@@ -22,11 +22,51 @@ const PORT = process.env.PORT || 8080;
 const cache = new Map();
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // Cache for 30 Days
 
+// 🚫 iframe 埋め込みのみ許可するミドルウェア（全機能対象）
+const allowedEmbedOrigins = ['https://xeroxapp024.vercel.app'];
+
+app.use((req, res, next) => {
+  const referer = req.get('Referer');
+
+  // Referer がない（＝直接アクセス）は拒否
+  if (!referer) {
+    return res.status(403).send(`
+      <html lang="ja">
+        <head><meta charset="UTF-8"><title>直接アクセス拒否</title></head>
+        <body style="font-family: sans-serif; background-color: #f8f8f8; display: flex; align-items: center; justify-content: center; height: 100vh;">
+          <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center;">
+            <h1 style="color: #e53e3e; font-size: 1.5rem;">直接アクセスは禁止されています</h1>
+            <p style="color: #4a5568;">このページは、許可されたドメインからの埋め込みでのみ表示可能です。</p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+
+  // Referer がある場合は、許可されたドメインかどうかを確認
+  const origin = new URL(referer).origin;
+  const isAllowed = allowedEmbedOrigins.includes(origin);
+
+  if (!isAllowed) {
+    return res.status(403).send(`
+      <html lang="ja">
+        <head><meta charset="UTF-8"><title>埋め込み元拒否</title></head>
+        <body style="font-family: sans-serif; background-color: #f8f8f8; display: flex; align-items: center; justify-content: center; height: 100vh;">
+          <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center;">
+            <h1 style="color: #e53e3e; font-size: 1.5rem;">埋め込み元が許可されていません</h1>
+            <p style="color: #4a5568;">このページは、指定されたドメインからの埋め込みのみ許可されています。</p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+
+  next();
+});
+
 // 🔐 Basic認証（必要な場合）
 if (config.challenge !== false) {
-  console.log(
-    chalk.green("🔒 Password protection is enabled! Listing logins below"),
-  );
+  console.log(chalk.green("🔒 Password protection is enabled! Listing logins below"));
   Object.entries(config.users).forEach(([username, password]) => {
     console.log(chalk.blue(`Username: ${username}, Password: ${password}`));
   });
@@ -80,37 +120,6 @@ app.get("/e/*", async (req, res, next) => {
     res.setHeader("Content-Type", "text/html");
     res.status(500).send("Error fetching the asset");
   }
-});
-
-// 🛡️ 埋め込み制限ミドルウェア（全体に適用）
-const allowedEmbedOrigins = ['https://xeroxapp024.vercel.app', 'same-origin'];
-
-app.use((req, res, next) => {
-  const referer = req.get('Referer');
-  const origin = referer ? new URL(referer).origin : '';
-  const currentOrigin = req.protocol + '://' + req.get('host');
-
-  const isEmbedded = !!referer;
-  const isSameOriginAllowed = allowedEmbedOrigins.includes('same-origin') && origin === currentOrigin;
-  const isExplicitlyAllowed = allowedEmbedOrigins.includes(origin);
-
-  const isAllowed = isSameOriginAllowed || isExplicitlyAllowed;
-
-  if (isEmbedded && !isAllowed) {
-    return res.status(403).send(`
-      <html lang="ja">
-        <head><meta charset="UTF-8"><title>アクセス拒否</title></head>
-        <body style="font-family: sans-serif; background-color: #f8f8f8; display: flex; align-items: center; justify-content: center; height: 100vh;">
-          <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center;">
-            <h1 style="color: #e53e3e; font-size: 1.5rem;">不正なアクセスです</h1>
-            <p style="color: #4a5568;">このページは、許可されたドメインからの埋め込みでのみ表示可能です。</p>
-          </div>
-        </body>
-      </html>
-    `);
-  }
-
-  next();
 });
 
 // 🍪 その他ミドルウェア
