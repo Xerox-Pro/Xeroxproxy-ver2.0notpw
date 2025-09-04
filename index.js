@@ -22,26 +22,69 @@ const PORT = process.env.PORT || 8080;
 const cache = new Map();
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // Cache for 30 Days
 
+// 🔒 BasicAuth (任意)
 if (config.challenge !== false) {
   console.log(
     chalk.green("🔒 Password protection is enabled! Listing logins below"),
   );
-  // biome-ignore lint/complexity/noForEach:
   Object.entries(config.users).forEach(([username, password]) => {
     console.log(chalk.blue(`Username: ${username}, Password: ${password}`));
   });
   app.use(basicAuth({ users: config.users, challenge: true }));
 }
 
+// ========================
+// 📌 埋め込み制御ミドルウェア（全体適用）
+// ========================
+const allowedEmbedOrigins = ["https://xeroxapp024.vercel.app"];
+
+app.use((req, res, next) => {
+  const referer = req.get("Referer");
+  const origin = referer ? new URL(referer).origin : "";
+
+  // iframe 埋め込みかどうか
+  const isEmbedded = !!referer;
+
+  // same-origin 判定（必要なら）
+  const currentOrigin = req.protocol + "://" + req.get("host");
+
+  let isAllowed = false;
+  if (allowedEmbedOrigins.includes("same-origin") && origin === currentOrigin) {
+    isAllowed = true;
+  } else if (allowedEmbedOrigins.includes(origin)) {
+    isAllowed = true;
+  }
+
+  // 🔴 埋め込み以外は全拒否
+  if (!isEmbedded || !isAllowed) {
+    return res.status(403).send(`
+      <html lang="ja">
+        <head><meta charset="UTF-8"><title>アクセス拒否</title></head>
+        <body style="font-family: sans-serif; background-color: #f8f8f8; display: flex; align-items: center; justify-content: center; height: 100vh;">
+          <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center;">
+            <h1 style="color: #e53e3e; font-size: 1.5rem;">不正なアクセスです</h1>
+            <p style="color: #4a5568;">このページは、XeroxYT からの埋め込みでしか表示できません</p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+
+  next();
+});
+
+// ========================
+// 📌 /e/* アセットキャッシュ取得
+// ========================
 app.get("/e/*", async (req, res, next) => {
   try {
     if (cache.has(req.path)) {
       const { data, contentType, timestamp } = cache.get(req.path);
-      if (Date.now() - timestamp > CACHE_TTL) {
-        cache.delete(req.path);
-      } else {
+      if (Date.now() - timestamp <= CACHE_TTL) {
         res.writeHead(200, { "Content-Type": contentType });
         return res.end(data);
+      } else {
+        cache.delete(req.path);
       }
     }
 
@@ -59,14 +102,10 @@ app.get("/e/*", async (req, res, next) => {
       }
     }
 
-    if (!reqTarget) {
-      return next();
-    }
+    if (!reqTarget) return next();
 
     const asset = await fetch(reqTarget);
-    if (!asset.ok) {
-      return next();
-    }
+    if (!asset.ok) return next();
 
     const data = Buffer.from(await asset.arrayBuffer());
     const ext = path.extname(reqTarget);
@@ -85,58 +124,18 @@ app.get("/e/*", async (req, res, next) => {
   }
 });
 
-// 許可された埋め込み元ドメイン
-const allowedEmbedOrigins = ['https://xeroxapp024.vercel.app'];
-
-app.use((req, res, next) => {
-  const referer = req.get('Referer');
-  const origin = referer ? new URL(referer).origin : '';
-
-  // iframe内からのアクセスかどうかを判定（Refererがある場合）
-  const isEmbedded = !!referer;
-
-  // same-originを許可したい場合は、以下のように currentOrigin を取得して比較できます
-  const currentOrigin = req.protocol + '://' + req.get('host');
-
-  let isAllowed = false;
-
-  if (allowedEmbedOrigins.includes('same-origin') && origin === currentOrigin) {
-    isAllowed = true;
-  } else if (allowedEmbedOrigins.includes(origin)) {
-    isAllowed = true;
-  }
-
-  if (isEmbedded && !isAllowed) {
-    return res.status(403).send(`
-      <html lang="ja">
-        <head><meta charset="UTF-8"><title>アクセス拒否</title></head>
-        <body style="font-family: sans-serif; background-color: #f8f8f8; display: flex; align-items: center; justify-content: center; height: 100vh;">
-          <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center;">
-            <h1 style="color: #e53e3e; font-size: 1.5rem;">不正なアクセスです</h1>
-            <p style="color: #4a5568;">このページは、XeroxYTからでないとアクセスできません</p>
-          </div>
-        </body>
-      </html>
-    `);
-  }
-
-  next();
-});
-
-
-
+// ========================
+// 📌 共通設定
+// ========================
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-/* if (process.env.MASQR === "true") {
-  console.log(chalk.green("Masqr is enabled"));
-  setupMasqr(app);
-} */
-
-app.use(express.static(path.join(__dirname, "static")));
 app.use("/ca", cors({ origin: true }));
 
+// 静的ファイル
+app.use(express.static(path.join(__dirname, "static")));
+
+// ページルーティング
 const routes = [
   { path: "/b", file: "apps.html" },
   { path: "/a", file: "games.html" },
@@ -146,22 +145,26 @@ const routes = [
   { path: "/", file: "index.html" },
 ];
 
-// biome-ignore lint/complexity/noForEach:
 routes.forEach(route => {
   app.get(route.path, (_req, res) => {
     res.sendFile(path.join(__dirname, "static", route.file));
   });
 });
 
-app.use((req, res, next) => {
+// 404
+app.use((req, res) => {
   res.status(404).sendFile(path.join(__dirname, "static", "404.html"));
 });
 
+// 500
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).sendFile(path.join(__dirname, "static", "404.html"));
 });
 
+// ========================
+// 📌 サーバー起動
+// ========================
 server.on("request", (req, res) => {
   if (bareServer.shouldRoute(req)) {
     bareServer.routeRequest(req, res);
