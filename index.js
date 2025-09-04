@@ -112,8 +112,8 @@ app.use((req, res, next) => {
         <head><meta charset="UTF-8"><title>アクセス拒否</title></head>
         <body style="font-family: sans-serif; background-color: #f8f8f8; display: flex; align-items: center; justify-content: center; height: 100vh;">
           <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center;">
-            <h1 style="color: #e53e3e; font-size: 1.5rem;">不正なアクセスです</h1>
-            <p style="color: #4a5568;">このページは、XeroxYTからでないとアクセスできません</p>
+            <h1 style="color: #e53e3e; font-size: 1.5rem;"アクセが不正です</h1>
+            <p style="color: #4a5568;">このページは、許可されたドメインからの埋め込みでのみ表示可能です。</p>
           </div>
         </body>
       </html>
