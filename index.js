@@ -86,14 +86,18 @@ app.get("/e/*", async (req, res, next) => {
 });
 
 // 許可された埋め込み元ドメイン
-const allowedEmbedOrigins = ['https://xeroxapp024.vercel.app'];
+const allowedEmbedOrigins = ['https://xeroxapp051.vercel.app'];
 
 app.use((req, res, next) => {
   const referer = req.get('Referer');
   const origin = referer ? new URL(referer).origin : '';
+
+  // iframe内からのアクセスかどうかを判定（Refererがある場合）
+  const isEmbedded = !!referer;
+
+  // same-originを許可したい場合は、以下のように currentOrigin を取得して比較できます
   const currentOrigin = req.protocol + '://' + req.get('host');
 
-  const isEmbedded = !!referer;
   let isAllowed = false;
 
   if (allowedEmbedOrigins.includes('same-origin') && origin === currentOrigin) {
@@ -102,15 +106,14 @@ app.use((req, res, next) => {
     isAllowed = true;
   }
 
-  // 静的ファイルへのアクセスで埋め込み元が不正な場合は拒否
-  if (isEmbedded && !isAllowed && req.url.startsWith('/static')) {
+  if (isEmbedded && !isAllowed) {
     return res.status(403).send(`
       <html lang="ja">
-        <head><meta charset="UTF-8"><title>埋め込み拒否</title></head>
+        <head><meta charset="UTF-8"><title>アクセス拒否</title></head>
         <body style="font-family: sans-serif; background-color: #f8f8f8; display: flex; align-items: center; justify-content: center; height: 100vh;">
           <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center;">
-            <h1 style="color: #e53e3e; font-size: 1.5rem;">埋め込み元が不正です</h1>
-            <p style="color: #4a5568;">このページは、許可されたドメインからの埋め込みでのみ表示可能です。</p>
+            <h1 style="color: #e53e3e; font-size: 1.5rem;">不正なアクセスです</h1>
+            <p style="color: #4a5568;">このページは、XeroxYTからじゃないとアクセスできません</p>
           </div>
         </body>
       </html>
