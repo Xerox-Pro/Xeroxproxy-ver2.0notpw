@@ -109,11 +109,11 @@ app.use((req, res, next) => {
   if (isEmbedded && !isAllowed) {
     return res.status(403).send(`
       <html lang="ja">
-        <head><meta charset="UTF-8"><title>埋め込み拒否</title></head>
+        <head><meta charset="UTF-8"><title>アクセス拒否</title></head>
         <body style="font-family: sans-serif; background-color: #f8f8f8; display: flex; align-items: center; justify-content: center; height: 100vh;">
           <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center;">
-            <h1 style="color: #e53e3e; font-size: 1.5rem;">埋め込み元が不正です</h1>
-            <p style="color: #4a5568;">このページは、許可されたドメインからの埋め込みでのみ表示可能です。</p>
+            <h1 style="color: #e53e3e; font-size: 1.5rem;">アクセス先が不正です。</h1>
+            <p style="color: #4a5568;">このページは、XeroxYTを経由しないとアクセスできません。</p>
           </div>
         </body>
       </html>
