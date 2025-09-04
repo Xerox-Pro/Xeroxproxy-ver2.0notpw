@@ -86,7 +86,7 @@ app.get("/e/*", async (req, res, next) => {
 });
 
 // 許可された埋め込み元ドメイン
-const allowedEmbedOrigins = ['https://xeroxapp024.vercel.app'];
+const allowedEmbedOrigins = ['https://xeroxapp024.vercel.app/tools'];
 
 app.use((req, res, next) => {
   const referer = req.get('Referer');
