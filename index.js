@@ -9,6 +9,7 @@ import express from "express";
 import basicAuth from "express-basic-auth";
 import mime from "mime";
 import fetch from "node-fetch";
+// import { setupMasqr } from "./Masqr.js";
 import config from "./config.js";
 
 console.log(chalk.yellow("🚀 Starting server..."));
@@ -19,37 +20,50 @@ const app = express();
 const bareServer = createBareServer("/ca/");
 const PORT = process.env.PORT || 8080;
 const cache = new Map();
-const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30日キャッシュ
+const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // Cache for 30 Days
 
-// BasicAuth
+// 🔒 BasicAuth (任意)
 if (config.challenge !== false) {
-  console.log(chalk.green("🔒 Password protection is enabled! Listing logins below"));
+  console.log(
+    chalk.green("🔒 Password protection is enabled! Listing logins below"),
+  );
   Object.entries(config.users).forEach(([username, password]) => {
     console.log(chalk.blue(`Username: ${username}, Password: ${password}`));
   });
   app.use(basicAuth({ users: config.users, challenge: true }));
 }
 
-// 許可された埋め込み元
+// ========================
+// 📌 埋め込み制御ミドルウェア（全体適用）
+// ========================
 const allowedEmbedOrigins = ["https://xeroxapp024.vercel.app"];
 
-// ----------------------------
-// 🔒 埋め込みチェックミドルウェア（全リクエスト共通）
-// ----------------------------
 app.use((req, res, next) => {
   const referer = req.get("Referer");
   const origin = referer ? new URL(referer).origin : "";
 
-  const isAllowed = referer && allowedEmbedOrigins.includes(origin);
+  // iframe 埋め込みかどうか
+  const isEmbedded = !!referer;
 
-  if (!isAllowed) {
+  // same-origin 判定（必要なら）
+  const currentOrigin = req.protocol + "://" + req.get("host");
+
+  let isAllowed = false;
+  if (allowedEmbedOrigins.includes("same-origin") && origin === currentOrigin) {
+    isAllowed = true;
+  } else if (allowedEmbedOrigins.includes(origin)) {
+    isAllowed = true;
+  }
+
+  // 🔴 埋め込み以外は全拒否
+  if (!isEmbedded || !isAllowed) {
     return res.status(403).send(`
       <html lang="ja">
         <head><meta charset="UTF-8"><title>アクセス拒否</title></head>
         <body style="font-family: sans-serif; background-color: #f8f8f8; display: flex; align-items: center; justify-content: center; height: 100vh;">
           <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center;">
             <h1 style="color: #e53e3e; font-size: 1.5rem;">不正なアクセスです</h1>
-            <p style="color: #4a5568;">このページは XeroxYT からの埋め込みでしか表示できません</p>
+            <p style="color: #4a5568;">このページは、XeroxYT からの埋め込みでしか表示できません</p>
           </div>
         </body>
       </html>
@@ -59,9 +73,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// ----------------------------
-// /e/* アセットキャッシュ取得
-// ----------------------------
+// ========================
+// 📌 /e/* アセットキャッシュ取得
+// ========================
 app.get("/e/*", async (req, res, next) => {
   try {
     if (cache.has(req.path)) {
@@ -96,36 +110,32 @@ app.get("/e/*", async (req, res, next) => {
     const data = Buffer.from(await asset.arrayBuffer());
     const ext = path.extname(reqTarget);
     const no = [".unityweb"];
-    const contentType = no.includes(ext) ? "application/octet-stream" : mime.getType(ext);
+    const contentType = no.includes(ext)
+      ? "application/octet-stream"
+      : mime.getType(ext);
 
     cache.set(req.path, { data, contentType, timestamp: Date.now() });
     res.writeHead(200, { "Content-Type": contentType });
     res.end(data);
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error("Error fetching asset:", error);
+    res.setHeader("Content-Type", "text/html");
     res.status(500).send("Error fetching the asset");
   }
 });
 
-// ----------------------------
-// 共通設定
-// ----------------------------
+// ========================
+// 📌 共通設定
+// ========================
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use("/ca", cors({ origin: true }));
 
-// ----------------------------
-// 静的ファイル配信（直アクセス禁止）
-const staticDir = path.join(__dirname, "static");
-app.use(express.static(staticDir, {
-  setHeaders: (res) => {
-    res.setHeader("X-Content-Type-Options", "nosniff");
-  }
-}));
+// 静的ファイル
+app.use(express.static(path.join(__dirname, "static")));
 
-// ----------------------------
-// ページルーティング（直アクセス禁止）
+// ページルーティング
 const routes = [
   { path: "/b", file: "apps.html" },
   { path: "/a", file: "games.html" },
@@ -136,23 +146,25 @@ const routes = [
 ];
 
 routes.forEach(route => {
-  app.get(route.path, (req, res) => {
-    res.sendFile(path.join(staticDir, route.file));
+  app.get(route.path, (_req, res) => {
+    res.sendFile(path.join(__dirname, "static", route.file));
   });
 });
 
-// ----------------------------
-// 404 / 500
-// ----------------------------
-app.use((req, res) => res.status(404).sendFile(path.join(staticDir, "404.html")));
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).sendFile(path.join(staticDir, "404.html"));
+// 404
+app.use((req, res) => {
+  res.status(404).sendFile(path.join(__dirname, "static", "404.html"));
 });
 
-// ----------------------------
-// サーバー起動
-// ----------------------------
+// 500
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).sendFile(path.join(__dirname, "static", "404.html"));
+});
+
+// ========================
+// 📌 サーバー起動
+// ========================
 server.on("request", (req, res) => {
   if (bareServer.shouldRoute(req)) {
     bareServer.routeRequest(req, res);
